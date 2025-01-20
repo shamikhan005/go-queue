@@ -22,7 +22,7 @@ func NewRedisClient() *RedisClient {
 	return &RedisClient{Client: client}
 }
 
-func (r *RedisClient) Addtask(queue string, taskData string) error {
+func (r *RedisClient) AddTask(queue string, taskData string) error {
 	return r.Client.RPush(ctx, queue, taskData).Err()
 }
 
