@@ -3,6 +3,8 @@ package persistence
 import (
 	"context"
 	"log"
+	"time"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -22,10 +24,26 @@ func NewRedisClient() *RedisClient {
 	return &RedisClient{Client: client}
 }
 
-func (r *RedisClient) AddTask(queue string, taskData string) error {
-	return r.Client.RPush(ctx, queue, taskData).Err()
+func (r *RedisClient) AddTaskWithState(queue string, taskID string, taskData string) error {
+	pipe := r.Client.TxPipeline()
+
+	pipe.RPush(ctx, queue, taskID)
+
+	taskKey := "task:" + taskID
+	pipe.HSet(ctx, taskKey, "data", taskData)
+	pipe.HSet(ctx, taskKey, "status", "Pending")
+	pipe.HSet(ctx, taskKey, "created_at", time.Now().Format(time.RFC3339))
+
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
-func (r *RedisClient) GetTask(queue string) (string, error) {
-	return r.Client.LPop(ctx, queue).Result()
+func (r *RedisClient) UpdateTaskState(taskID string, state string) error {
+	taskKey := "task:" + taskID
+	return r.Client.HSet(ctx, taskKey, "status", state).Err()
+}
+
+func (r *RedisClient) GetTaskData(taskID string) (map[string]string, error) {
+	taskKey := "task:" + taskID
+	return r.Client.HGetAll(ctx, taskKey).Result()
 }
