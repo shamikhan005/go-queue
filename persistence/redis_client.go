@@ -40,7 +40,7 @@ func (r *RedisClient) AddTaskWithState(queue string, taskID string, taskData str
 
 func (r *RedisClient) UpdateTaskState(taskID string, state string) error {
 	taskKey := "task:" + taskID
-	return r.Client.HSet(ctx, taskKey, "status", state).Err()
+	return r.Client.HSet(ctx, taskKey, "status", string(state)).Err()
 }
 
 func (r *RedisClient) GetTaskData(taskID string) (map[string]string, error) {
