@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"first/go-queue/persistence"
 	"first/go-queue/queue"
@@ -15,6 +16,7 @@ func main() {
 	flag.Parse()
 
 	redisClient := persistence.NewRedisClient()
+	ctx := context.Background()
 
 	newTask := task.NewTask(*taskName)
 
@@ -24,30 +26,49 @@ func main() {
 	}
 
 	queueName := "task-queue"
-	err = redisClient.AddTask(queueName, string(taskData))
+	err = redisClient.AddTaskWithState(queueName, newTask.ID, string(taskData))
 	if err != nil {
 		log.Fatalf("failed to enqueue task to redis: %v", err)
 	}
-	fmt.Printf("task '%s' enqueued to redis\n", newTask.Name)
+	fmt.Printf("task '%s' (ID: %s) enqueued to redis\n", newTask.Name, newTask.ID)
 
-	taskQueue := make(chan task.Task, 10) 
+	taskQueue := make(chan task.Task, 10)
 	pool := queue.NewWorkerPool(3, taskQueue)
 
 	pool.Start()
 
 	go func() {
 		for {
-			taskJSON, err := redisClient.GetTask(queueName)
+			taskID, err := redisClient.Client.LPop(ctx, queueName).Result()
 			if err != nil {
 				log.Println("no tasks in queue or error fetching task:", err)
-				break
-			}
-			var t task.Task
-			err = json.Unmarshal([]byte(taskJSON), &t)
-			if err != nil {
-				log.Println("failed to unmarshal task:", err)
 				continue
 			}
+
+			taskData, err := redisClient.GetTaskData(taskID)
+			if err != nil {
+				log.Printf("failed to fetch task data for ID %s: %v\n", taskID, err)
+				continue
+			}
+
+			dataField, exists := taskData["data"]
+			if !exists {
+				log.Printf("task %s has no data field\n", taskID)
+				continue
+			}
+
+			var t task.Task
+			if err := json.Unmarshal([]byte(dataField), &t); 
+			err != nil {
+				log.Printf("failed to unmarshal task %s: %v\n", taskID, err)
+				continue
+			}
+
+			if err := redisClient.UpdateTaskState(t.ID, string(task.Processing)); 
+			err != nil {
+				log.Printf("failed to update task %s status: %v\n", t.ID, err)
+			}
+
 			taskQueue <- t
 		}
 	}()
